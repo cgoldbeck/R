@@ -1,0 +1,135 @@
+---
+title: "Health Coding Challenge 2"
+author: "Cameron S. Goldbeck"
+date: "July 8, 2019"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Data Import
+
+We will read in the csv data sheet send from github.
+
+```{r df, warning=FALSE}
+library(readr)
+df <- read_csv("https://raw.githubusercontent.com/cgoldbeck/Datasets/master/spring_take_home_df.csv", 
+               col_types = cols(PHQ9_score = col_number(), SDS_days_missed = col_number(), 
+               SDS_days_unproductive = col_number(), SDS_home_life_impact = col_number(), 
+               SDS_social_life_impact = col_number(), SDS_work_impact = col_number()))
+```
+
+## Question 1: How many individuals used our platform?
+
+```{r q1}
+# the number of uniqye IDs there are in the data
+length(table(df$member_id_hashed))
+```
+
+Answer 1: There are 1166 unique individuals who have used the platform.
+
+## Question 2: What is the average number of times that a member interacts with the platform?
+```{r q2}
+
+print(paste0("The mean is: ", mean(table(df$member_id_hashed))))
+print(paste0("The median is: ", median(table(df$member_id_hashed))))
+
+```
+
+Answer 2: The mean number of times an member interacts with the platform is 2.8 times, while the median number of interactions is 2 times.
+
+## Question 3: What is the distribution of baseline PHQ9 total scores for members on the platform?
+```{r q3}
+#  First we subset the data to only PHQ9
+phq_9 <- df[df$questionnaire_kind == 'PHQ9', ]
+
+#  Next we remove 'duplicates' which here means subset to the earliest observation (baseline)
+phq_9_base <- phq_9[order(phq_9$member_id_hashed, phq_9$assessment_created_at), ]  # sort
+phq_9_base <- phq_9_base[!duplicated(phq_9_base$member_id_hashed), ]  # subset
+
+hist(phq_9_base$PHQ9_score, probability = T, main = 'Distribution of Baseline PHQ9 Scores', xlab = 'Total PHQ9 Scores')
+
+summary(phq_9_base$PHQ9_score)
+
+print(paste0("The standard deviation is: ", sd(phq_9_base$PHQ9_score)))
+```
+Answer 3: The distribution of the PHQ9 scores is right skewed. The mean score is 8.01, the median score is 7.0 with a range from 0 to 26 and a standard deviation of 5.4.
+
+## Question 4: What is the average change in total PHQ9 score for members using the platform?
+```{r q4}
+#  The previous question gives us baseline scores now we need the last one
+phq_9_last <- phq_9[order(phq_9$member_id_hashed, phq_9$assessment_created_at, decreasing = T), ]  # order
+phq_9_last <- phq_9_last[!duplicated(phq_9_last$member_id_hashed), ]  # subset
+phq_9_last <- phq_9_last[order(phq_9_last$member_id_hashed), ]  # re-order for my personal preference
+
+#  Merge the base and last datasets
+phq_9_both <- merge(phq_9_base, phq_9_last, by = 'member_id_hashed')
+
+#  Some users have only taken one PHQ9 assesment so delete those because we cannot calculate a change in score
+phq_9_both <- phq_9_both[phq_9_both$assessment_created_at.x != phq_9_both$assessment_created_at.y, ]
+
+phq_9_both$PHQ9_change <- phq_9_both$PHQ9_score.y - phq_9_both$PHQ9_score.x
+
+t.test(phq_9_both$PHQ9_change)
+```
+Answer 4: To calculate the change in PHQ9 scores for platform users, we used their first and last PHQ scores for those who used the platform at least twice. Doing so, we find the average change in scores is a decrease in .9 points and performing a paired T-test we find that this estimate is significantly difference than zero with p<.01.
+
+## Question 5: What is the average change in total PHQ9 score for depressed individuals using the platform?
+```{r q5}
+#  A list of IDs that are ever depressed
+depressed <- names(table(phq_9$member_id_hashed[phq_9$PHQ9_positive == 'TRUE']))
+
+#  A list of IDs that were depressed at their first assesment
+depressed_base <- names(table(phq_9_base$member_id_hashed[phq_9_base$PHQ9_positive == 'TRUE']))
+
+t.test(phq_9_both$PHQ9_change[phq_9_both$member_id_hashed %in% depressed])
+t.test(phq_9_both$PHQ9_change[phq_9_both$member_id_hashed %in% depressed_base])
+```
+Answer 5: There are two approaches we take to find change in PHQ9 scores for depressed platform users. The first is to look at those users who have ever had a PHQ9 score indicating depression and we find their scores decrease slightly more than all users decreasing about .94 points (p<.01). However, if we only look at those users who's initial PHQ9 score indicated depression, we find a much more substantial decrease at about 1.44 points (p<.01). I believe the latter approach is more suitable because we are able to better measure the effect the platform has on those who are depressed and choose to use. 
+
+## Question 6: What is the average change in total workplace productivity (SDS_days_unproductive) for members interacting with the platform?
+```{r q6}
+#  Create a baseline of sds variables
+sds <- df[df$questionnaire_kind == 'SDS', ]
+sds_base <- sds[order(sds$member_id_hashed, sds$assessment_created_at), ]
+sds_base <- sds_base[!duplicated(sds_base$member_id_hashed), ]
+
+#  Create dataset with last observed sds variables
+sds_last <- sds[order(sds$member_id_hashed, sds$assessment_created_at, decreasing = T), ]
+sds_last <- sds_last[!duplicated(sds_last$member_id_hashed), ]
+sds_last <- sds_last[order(sds_last$member_id_hashed), ]
+
+#  Merge baseline and last
+sds_both <- merge(sds_base, sds_last, by = 'member_id_hashed')
+
+#  Delete those who only ever answered assesment once
+sds_both <- sds_both[sds_both$assessment_created_at.x != sds_both$assessment_created_at.y, ]
+
+sds_both$SDS_days_unproductive_change <- sds_both$SDS_days_unproductive.y - sds_both$SDS_days_unproductive.x
+
+t.test(sds_both$SDS_days_unproductive_change)
+
+```
+Answer 6: For members using the platform, we find that the average decrease in day unproductive is by .11 days however we cannot say this value is statistically different than zero as p=.39.
+
+## Question 7: A core goal of treating depression is to improve function (e.g. SDS_days_unproductive) as well as symptoms (e.g. PHQ9_score)? Do you think that members benefit from interacting with the Spring platform? Why?
+```{r q7}
+phq_sds <- merge(sds_both[, c("member_id_hashed", "SDS_days_unproductive_change")], 
+           phq_9_both[, c("member_id_hashed", "PHQ9_change")], by = "member_id_hashed")
+
+m <- lm(formula = SDS_days_unproductive_change ~ PHQ9_change, data = phq_sds)
+summary(m)
+
+plot(phq_sds$PHQ9_change, phq_sds$SDS_days_unproductive_change, 
+     main = "Change in PHQ9 Predicting Change in Unproductive Days", xlab = "Change in PHQ9", 
+     ylab = "Change in Unproductive Day")
+abline(m, col = "red")
+```
+
+Answer 7: It appears that reduction in PHQ9 scores does (slightly) coincide with a reduction in unproductive days. Performing simple linear regression we can justify this with statistical evidence. We see that for every point a user is able to reduce their PHQ9 scores, they gain about 0.2 or 20% of a productive day back which is statistically significant at p<.01. Further, we note that the estimate of the intercept is not statistically different than zero, p=0.83. This also helps justify the claim that reduction in PHQ9 reduces unproductive days because the intercept in this regression model is the estimated reduction in unproductive days when there is no change in PHQ9 and since it is not different than zero, we can believe that no reduction in PHQ9 means no reduction in unproductive days.
+
+By examining the scatter plot and trend line we can visually see this claim. As users reduce their PHQ9 score, they also reduce number of unproductive days. We should note that the relationship is clearly not the strongest, R-squared is about 0.23, so inference is limited. However, we should further note that while there are users whose PHQ9 scores increase, from Question 4 we showed that there is an overall significant reduction in PHQ9 on average.
